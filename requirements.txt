@@ -1,0 +1,30 @@
+# Smart PDF Study Assistant — Python dependencies
+#
+# Install via conda environment (recommended):
+#   conda env create -f environment.yml
+#   conda activate study-ai
+#
+# Or install directly with pip:
+#   pip install -r requirements.txt
+
+# ── Web / UI ──────────────────────────────────────────────────────────────────
+streamlit>=1.35.0           # UI framework — runs the chat interface
+fastapi>=0.111.0            # REST API framework (optional server mode)
+uvicorn[standard]>=0.29.0   # ASGI server for FastAPI
+
+# ── AI / LLM ──────────────────────────────────────────────────────────────────
+openai>=1.30.0              # OpenAI Python SDK (chat + embeddings)
+
+# ── Vector database ───────────────────────────────────────────────────────────
+chromadb>=0.5.0             # Persistent local vector store
+
+# ── PDF processing ────────────────────────────────────────────────────────────
+pymupdf>=1.24.0             # PyMuPDF — fast PDF text extraction (import as fitz)
+
+# ── Configuration ─────────────────────────────────────────────────────────────
+python-dotenv>=1.0.0        # Load .env files into os.environ
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+# (retry logic is implemented manually in utils.py using the stdlib)
+# tenacity is listed here as an optional alternative for advanced retry needs
+tenacity>=8.3.0

@@ -1,0 +1,23 @@
+name: study-ai
+
+channels:
+  - defaults
+  - conda-forge
+
+dependencies:
+  # Python version
+  - python=3.12
+
+  # Conda-installable packages (faster and more stable than pip for these)
+  - pip
+
+  # Install all remaining packages via pip from requirements.txt
+  - pip:
+    - streamlit>=1.35.0
+    - fastapi>=0.111.0
+    - uvicorn[standard]>=0.29.0
+    - openai>=1.30.0
+    - chromadb>=0.5.0
+    - pymupdf>=1.24.0
+    - python-dotenv>=1.0.0
+    - tenacity>=8.3.0
