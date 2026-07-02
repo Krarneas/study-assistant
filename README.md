@@ -10,29 +10,29 @@ concepts: **Context Engineering**, **Harness Engineering**, and **Loop Engineeri
 
 ```mermaid
 flowchart TD
-    U[User] --> UI[Streamlit UI (app.py)];
+    U[User] --> UI["Streamlit UI app.py"]
 
     subgraph Ingestion["PDF Ingestion Path (Harness Engineering)"]
-        UI --> PL[PDFLoader (pdf_loader.py)];
-        PL --> EM[EmbeddingManager (embeddings.py)];
-        EM --> DB[(ChromaDB / database/chroma)];
+        UI --> PL["PDFLoader pdf_loader.py"]
+        PL --> EM["EmbeddingManager embeddings.py"]
+        EM --> DB["ChromaDB database chroma"]
     end
 
     subgraph QA["Question Answering Path"]
-        UI --> RL[RefinementLoop.run() (loop.py)];
-        RL --> R[Retriever (retriever.py)];
-        R --> DB;
-        R --> PB[PromptBuilder (prompt_builder.py)];
-        PB --> LLM[LLMClient.complete() (llm.py)];
-        LLM --> V{_is_answer_vague?};
-        V -- No --> OUT[Return answer + logs + chunks];
-        V -- Yes and iterations < MAX --> RL;
-        V -- Yes and max reached --> OUT;
+        UI --> RL["RefinementLoop run loop.py"]
+        RL --> R["Retriever retriever.py"]
+        R --> DB
+        R --> PB["PromptBuilder prompt_builder.py"]
+        PB --> LLM["LLMClient complete llm.py"]
+        LLM --> V{"is_answer_vague"}
+        V -- No --> OUT["Return answer logs chunks"]
+        V -- Yes and iterations < MAX --> RL
+        V -- Yes and max reached --> OUT
     end
 
-    RL -. Loop Engineering .-> V;
-    PB -. Context Engineering .-> LLM;
-    EM -. Harness Engineering .-> DB;
+    RL -. Loop Engineering .-> V
+    PB -. Context Engineering .-> LLM
+    EM -. Harness Engineering .-> DB
 ```
 
 ### Data Flow
