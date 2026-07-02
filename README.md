@@ -10,20 +10,20 @@ concepts: **Context Engineering**, **Harness Engineering**, and **Loop Engineeri
 
 ```mermaid
 flowchart TD
-    U[User] --> UI[Streamlit UI<br/>app.py]
+    U[User] --> UI[Streamlit UI\n(app.py)]
 
     subgraph Ingestion["PDF Ingestion Path (Harness Engineering)"]
-        UI --> PL[PDFLoader<br/>pdf_loader.py]
-        PL --> EM[EmbeddingManager<br/>embeddings.py]
-        EM --> DB[(ChromaDB<br/>database/chroma)]
+        UI --> PL[PDFLoader\n(pdf_loader.py)]
+        PL --> EM[EmbeddingManager\n(embeddings.py)]
+        EM --> DB[(ChromaDB\n(database/chroma))]
     end
 
     subgraph QA["Question Answering Path"]
-        UI --> RL[RefinementLoop.run()<br/>loop.py]
-        RL --> R[Retriever<br/>retriever.py]
+        UI --> RL[RefinementLoop.run()\n(loop.py)]
+        RL --> R[Retriever\n(retriever.py)]
         R --> DB
-        R --> PB[PromptBuilder<br/>prompt_builder.py]
-        PB --> LLM[LLMClient.complete()<br/>llm.py]
+        R --> PB[PromptBuilder\n(prompt_builder.py)]
+        PB --> LLM[LLMClient.complete()\n(llm.py)]
         LLM --> V{_is_answer_vague?}
         V -- No --> OUT[Return answer + logs + chunks]
         V -- Yes and iterations < MAX --> RL
