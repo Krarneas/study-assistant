@@ -8,70 +8,49 @@ concepts: **Context Engineering**, **Harness Engineering**, and **Loop Engineeri
 
 ## Architecture
 
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                         Streamlit UI (app.py)                            │
-│  Sidebar: API key · PDF upload · Clear DB                                │
-│  Main:    Chat interface · Loop status · Retrieved chunks · Answer       │
-└─────────────────────────────┬────────────────────────────────────────────┘
-                              │
-          ┌───────────────────▼──────────────────────┐
-          │           RefinementLoop (loop.py)        │  ← LOOP ENGINEERING
-          │  iteration 1 … MAX_LOOP_ITERATIONS        │
-          └──┬──────────────────────────────────┬─────┘
-             │                                  │
-    ┌────────▼────────┐               ┌─────────▼──────────┐
-    │  Retriever       │               │  PromptBuilder      │  ← CONTEXT ENGINEERING
-    │  (retriever.py)  │               │  (prompt_builder.py)│
-    │                  │               │                     │
-    │  query → embed   │               │  system prompt      │
-    │  ChromaDB search │               │  + trimmed history  │
-    │  → top-k chunks  │               │  + retrieved chunks │
-    └────────┬────────┘               │  + question         │
-             │                        └─────────┬───────────┘
-             │                                  │
-    ┌────────▼────────┐               ┌─────────▼───────────┐
-    │ EmbeddingManager│               │   LLMClient          │  ← HARNESS ENGINEERING
-    │ (embeddings.py) │               │   (llm.py)           │
-    │                 │               │                      │
-    │  OpenAI embed   │               │   openai.chat        │
-    │  ChromaDB store │               │   .completions       │
-    └────────┬────────┘               │   + retry + logging  │
-             │                        └──────────────────────┘
-    ┌────────▼────────┐
-    │  PDFLoader       │  ← HARNESS ENGINEERING
-    │  (pdf_loader.py) │
-    │                  │
-    │  PyMuPDF extract │
-    │  word-chunk split│
-    └──────────────────┘
+```mermaid
+flowchart TD
+    U[User] --> UI[Streamlit UI<br/>app.py]
+
+    subgraph Ingestion["PDF Ingestion Path (Harness Engineering)"]
+        UI --> PL[PDFLoader<br/>pdf_loader.py]
+        PL --> EM[EmbeddingManager<br/>embeddings.py]
+        EM --> DB[(ChromaDB<br/>database/chroma)]
+    end
+
+    subgraph QA["Question Answering Path"]
+        UI --> RL[RefinementLoop.run()<br/>loop.py]
+        RL --> R[Retriever<br/>retriever.py]
+        R --> DB
+        R --> PB[PromptBuilder<br/>prompt_builder.py]
+        PB --> LLM[LLMClient.complete()<br/>llm.py]
+        LLM --> V{_is_answer_vague?}
+        V -- No --> OUT[Return answer + logs + chunks]
+        V -- Yes and iterations < MAX --> RL
+        V -- Yes and max reached --> OUT
+    end
+
+    RL -. Loop Engineering .-> V
+    PB -. Context Engineering .-> LLM
+    EM -. Harness Engineering .-> DB
 ```
 
 ### Data Flow
 
-**PDF ingestion** (happens once per upload):
-```
-User uploads PDF
-  → PDFLoader.load_and_chunk()    extract text, split into ~500-word chunks
-  → EmbeddingManager.add_chunks() embed each chunk, upsert into ChromaDB
-```
+**PDF ingestion** (runs once per upload):
+1. User uploads a PDF in `app.py`.
+2. `PDFLoader.load_and_chunk()` extracts text and creates overlapping chunks.
+3. `EmbeddingManager.add_chunks()` embeds each chunk and upserts into ChromaDB.
 
-**Question answering** (happens on every user question):
-```
-User asks question
-  → RefinementLoop.run()
-      iteration 1:
-        Retriever.retrieve(question, top_k=3)    find 3 nearest chunks
-        PromptBuilder.build(question, chunks, history)
-        LLMClient.complete(messages)             → answer
-        _is_answer_vague(answer, chunks)?
-          No  → return answer  ✅
-          Yes → iteration 2:
-                  Retriever.retrieve_excluding(…, top_k=3, exclude=[…])
-                  PromptBuilder.build(question, all_chunks, history)
-                  LLMClient.complete(messages)   → better answer
-                  …repeat up to MAX_LOOP_ITERATIONS
-```
+**Question answering** (runs on each question):
+1. `RefinementLoop.run()` starts iteration 1.
+2. `Retriever.retrieve()` gets `TOP_K_INITIAL` chunks (then `retrieve_excluding()` on later iterations).
+3. `PromptBuilder.build()` assembles system prompt + trimmed history + chunks + question.
+4. `LLMClient.complete()` generates an answer.
+5. `_is_answer_vague()` checks quality:
+   - if good, return immediately;
+   - if vague and iterations remain, fetch new chunks and iterate;
+   - if max reached, return the best available answer.
 
 ---
 
