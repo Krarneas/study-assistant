@@ -41,7 +41,6 @@ logger = setup_logger(__name__)
 # ── Page configuration ─────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Smart PDF Study Assistant",
-    page_icon="📚",
     layout="wide",
 )
 
@@ -79,20 +78,20 @@ def get_llm_client() -> LLMClient:
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.title("📚 Study Assistant")
+    st.title("Study Assistant")
     st.markdown("---")
 
     # PDF Upload
-    st.subheader("📄 Upload Lecture Notes")
+    st.subheader("Document Upload")
     uploaded_file = st.file_uploader(
-        "Choose a PDF file",
+        "Select a PDF file",
         type=["pdf"],
-        help="Upload your lecture slides or notes. The app will extract and index the text.",
+        help="Upload lecture slides or notes. The application will extract and index the text.",
     )
 
     if uploaded_file is not None:
-        if st.button("📥 Process PDF", use_container_width=True):
-            with st.spinner(f"Processing '{uploaded_file.name}'…"):
+        if st.button("Process PDF", use_container_width=True):
+            with st.spinner(f"Processing '{uploaded_file.name}'..."):
                 try:
                     # Step 1: Extract text and create chunks
                     loader = PDFLoader()
@@ -136,7 +135,7 @@ with st.sidebar:
     st.markdown("---")
 
     # Clear Database
-    st.subheader("🗑️ Database")
+    st.subheader("Database")
     if st.button("Clear Database", use_container_width=True, type="secondary"):
         try:
             manager = get_embedding_manager()
@@ -154,24 +153,26 @@ with st.sidebar:
             st.error(f"Could not clear database: {exc}")
 
     st.markdown("---")
-    st.caption("Smart PDF Study Assistant  \nDemonstrating Context, Harness & Loop Engineering")
+    st.caption(
+        "Study Assistant  \n"
+        "Context, Harness, and Loop Engineering"
+    )
 
 
 # ── Main page ──────────────────────────────────────────────────────────────────
-st.title("Smart PDF Study Assistant")
+st.title("Study Assistant")
 st.markdown(
-    "Upload your lecture notes in the sidebar, then ask questions below. "
-    "The assistant uses only your document to answer — no internet access."
+    "Upload lecture notes in the sidebar, then submit questions below. "
+    "Responses are generated from the indexed document only."
 )
 
-# Show the three engineering pillars as info pills
 col1, col2, col3 = st.columns(3)
 with col1:
-    st.info("**Context Engineering**\nOnly relevant chunks enter the prompt.")
+    st.info("**Context Engineering**\nRetrieves only relevant document chunks for each query.")
 with col2:
-    st.info("**Harness Engineering**\nPDF → Embeddings → DB → LLM, with retries.")
+    st.info("**Harness Engineering**\nOrchestrates PDF ingestion, embeddings, retrieval, and generation.")
 with col3:
-    st.info("**Loop Engineering**\nIterative refinement if first answer is vague.")
+    st.info("**Loop Engineering**\nRefines answers when the initial response is insufficient.")
 
 st.markdown("---")
 
@@ -183,7 +184,7 @@ for message in st.session_state.messages:
 
 # ── Chat input ─────────────────────────────────────────────────────────────────
 user_question = st.chat_input(
-    "Ask a question about your lecture notes…",
+    "Enter a question about your lecture notes",
     disabled=not st.session_state.pdf_loaded,
 )
 
@@ -202,7 +203,7 @@ if user_question:
     # ── Run the refinement loop ────────────────────────────────────────────────
     with st.chat_message("assistant"):
         # Show a spinner while the loop runs
-        with st.spinner("Thinking…"):
+        with st.spinner("Generating response"):
             try:
                 # Build backend objects (cached)
                 embedding_manager = get_embedding_manager()
@@ -230,9 +231,9 @@ if user_question:
                 st.stop()
 
         # ── Display loop status ────────────────────────────────────────────
+        early_stop = " (early termination)" if result.stopped_early else ""
         with st.expander(
-            f"Loop status — {result.iterations} iteration(s)"
-            + (" ✅ stopped early" if result.stopped_early else ""),
+            f"Loop status: {result.iterations} iteration(s){early_stop}",
             expanded=False,
         ):
             for i, log_line in enumerate(result.iteration_log, start=1):
@@ -246,10 +247,10 @@ if user_question:
             for i, chunk in enumerate(result.chunks_used, start=1):
                 st.markdown(
                     f"**[{i}]** `{chunk.get('source', 'unknown')}` "
-                    f"— chunk {chunk.get('chunk_index', '?')} "
+                    f"- chunk {chunk.get('chunk_index', '?')} "
                     f"(distance: {chunk.get('distance', 'n/a')})"
                 )
-                st.text(chunk["text"][:500] + ("…" if len(chunk["text"]) > 500 else ""))
+                st.text(chunk["text"][:500] + ("..." if len(chunk["text"]) > 500 else ""))
                 if i < len(result.chunks_used):
                     st.markdown("---")
 
