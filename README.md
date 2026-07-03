@@ -10,47 +10,135 @@ concepts: **Context Engineering**, **Harness Engineering**, and **Loop Engineeri
 
 ```mermaid
 flowchart TD
-    U[User] --> UI["Streamlit UI app.py"]
+    U([User]) --> UI["Streamlit UI — app.py"]
 
-    subgraph Ingestion["PDF Ingestion Path (Harness Engineering)"]
-        UI --> PL["PDFLoader pdf_loader.py"]
-        PL --> EM["EmbeddingManager embeddings.py"]
-        EM --> DB["ChromaDB database chroma"]
+    subgraph Phase1["Phase 1 — PDF Ingestion   (Harness + Context Engineering)"]
+        UI -->|"upload PDF"| PL["PDFLoader — pdf_loader.py<br/>• Extract text with PyMuPDF<br/>• Split into overlapping word chunks"]
+        PL -->|"chunk list"| EM["EmbeddingManager — embeddings.py<br/>• Call OpenAI Embeddings API<br/>• Upsert vectors + metadata"]
+        EM -->|"vectors stored on disk"| DB[("ChromaDB<br/>database/chroma")]
     end
 
-    subgraph QA["Question Answering Path"]
-        UI --> RL["RefinementLoop run loop.py"]
-        RL --> R["Retriever retriever.py"]
-        R --> DB
-        R --> PB["PromptBuilder prompt_builder.py"]
-        PB --> LLM["LLMClient complete llm.py"]
-        LLM --> V{"is_answer_vague"}
-        V -- No --> OUT["Return answer logs chunks"]
-        V -- Yes and iterations < MAX --> RL
-        V -- Yes and max reached --> OUT
+    subgraph Phase2["Phase 2 — Question Answering   (Context + Harness + Loop Engineering)"]
+        UI -->|"user question"| RL["RefinementLoop — loop.py"]
+        RL -->|"iter 1: retrieve()<br/>iter 2+: retrieve_excluding()"| R["Retriever — retriever.py<br/>• Embed query via OpenAI<br/>• Cosine-distance search<br/>• Return top-K chunks only"]
+        R -->|"query vector"| DB
+        DB -->|"nearest chunks"| R
+        R -->|"relevant chunks"| PB["PromptBuilder — prompt_builder.py<br/>Layer 1 — System prompt<br/>Layer 2 — Trimmed history<br/>Layer 3 — Retrieved chunks<br/>Layer 4 — User question"]
+        PB -->|"4-layer prompt"| LLM["LLMClient — llm.py<br/>• OpenAI Chat Completions<br/>• @retry on transient failures<br/>• Log token usage"]
+        LLM --> V{"_is_answer_vague?<br/>1. Too short?<br/>2. Vague phrase found?<br/>3. Low word overlap?"}
+        V -->|"No — good answer"| OUT["LoopResult"]
+        V -->|"Yes + iterations remain"| RL
+        V -->|"Yes + max iterations reached"| OUT
     end
 
-    RL -. Loop Engineering .-> V
-    PB -. Context Engineering .-> LLM
-    EM -. Harness Engineering .-> DB
+    subgraph Phase3["Phase 3 — Display   (Harness Engineering)"]
+        OUT --> D1["Loop status expander<br/>iterations · early stop flag"]
+        OUT --> D2["Retrieved chunks expander<br/>text · source · distance scores"]
+        OUT --> D3["Final answer<br/>rendered markdown in chat"]
+    end
 ```
 
 ### Data Flow
 
-**PDF ingestion** (runs once per upload):
-1. User uploads a PDF in `app.py`.
-2. `PDFLoader.load_and_chunk()` extracts text and creates overlapping chunks.
-3. `EmbeddingManager.add_chunks()` embeds each chunk and upserts into ChromaDB.
+#### Phase 1 — PDF Ingestion (Harness + Context Engineering)
 
-**Question answering** (runs on each question):
-1. `RefinementLoop.run()` starts iteration 1.
-2. `Retriever.retrieve()` gets `TOP_K_INITIAL` chunks (then `retrieve_excluding()` on later iterations).
-3. `PromptBuilder.build()` assembles system prompt + trimmed history + chunks + question.
-4. `LLMClient.complete()` generates an answer.
-5. `_is_answer_vague()` checks quality:
-   - if good, return immediately;
-   - if vague and iterations remain, fetch new chunks and iterate;
-   - if max reached, return the best available answer.
+```
+User uploads PDF
+       │
+       ▼  [Harness Engineering]
+  PDFLoader.load_and_chunk()              ← backend/pdf_loader.py
+       │  • PyMuPDF extracts raw text from every page
+       │  • Splits into overlapping word-based chunks
+       │    (CHUNK_SIZE words, CHUNK_OVERLAP words shared between neighbors)
+       │
+       │  [Context Engineering]
+       │  Why chunking? The full PDF won't fit the LLM context window.
+       │  Small overlapping chunks let retrieval be precise later.
+       │
+       ▼  [Harness Engineering]
+  EmbeddingManager.add_chunks()           ← backend/embeddings.py
+       │  • Calls OpenAI Embeddings API → each chunk becomes a vector
+       │  • Upserts vectors + text + metadata into ChromaDB (on disk)
+       │  • Re-uploading the same PDF is idempotent (upsert, not insert)
+       │
+       ▼
+  ChromaDB now holds N chunk vectors, ready for semantic search
+```
+
+#### Phase 2 — Question Answering (All 3 Concepts)
+
+When the user types a question, `RefinementLoop.run()` takes over (`loop.py`):
+
+```
+User question
+       │
+       ▼  [Context Engineering]
+  Retriever.retrieve()                    ← backend/retriever.py
+       │  • Embeds the question into the same vector space as the chunks
+       │  • Cosine-distance search in ChromaDB → returns top-K chunks
+       │    (only 3–6 most relevant passages, NOT the whole PDF)
+       │
+       ▼  [Context Engineering]
+  PromptBuilder.build()                   ← backend/prompt_builder.py
+       │  Constructs a 4-layer prompt:
+       │    [1] System prompt   → "You are a study assistant, cite excerpts…"
+       │    [2] Trimmed history → last N Q&A pairs only (older turns dropped)
+       │    [3] Retrieved chunks → numbered citations [1], [2], [3]…
+       │    [4] User question   → "Question: …"
+       │
+       ▼  [Harness Engineering]
+  LLMClient.complete()                    ← backend/llm.py
+       │  • Sends the prompt to OpenAI Chat Completions API
+       │  • @retry decorator handles transient API errors automatically
+       │  • Logs token usage for cost monitoring
+       │
+       ▼  [Loop Engineering]
+  RefinementLoop._is_answer_vague()       ← backend/loop.py
+       │  Checks 3 heuristics (no second LLM call — cheap):
+       │    1. Is the answer too short? (< 80 chars)
+       │    2. Does it contain phrases like "not mentioned", "I don't know"?
+       │    3. Does it share fewer than 3 significant words with the chunks?
+       │
+       ├── GOOD  → return answer immediately (early stop)
+       │
+       └── VAGUE → fetch more chunks (excluding already-seen ones)
+                   and loop back to retrieve → build → generate
+                   (up to MAX_LOOP_ITERATIONS times)
+```
+
+#### Phase 3 — Display (Harness Engineering)
+
+```
+LoopResult returned to app.py
+       │
+       ├─ Loop status expander   → how many iterations ran, and why it stopped
+       ├─ Retrieved chunks expander → which passages were used + similarity scores
+       └─ Final answer            → rendered markdown in the chat window
+```
+
+#### End-to-End Summary
+
+```
+PDF upload
+  → [Harness]  parse & chunk                (pdf_loader.py)
+  → [Harness]  embed & store in ChromaDB    (embeddings.py)
+
+User question
+  → [Context]  embed query + retrieve top-K chunks   (retriever.py)
+  → [Context]  build focused 4-layer prompt          (prompt_builder.py)
+  → [Harness]  call LLM with retry + cost logging    (llm.py)
+  → [Loop]     evaluate answer quality               (loop.py)
+      ├── good  → return
+      └── vague → retrieve NEW chunks, re-prompt, repeat (max N times)
+
+Display result in Streamlit UI                       (app.py)
+```
+
+| Concept | What it prevents |
+|---|---|
+| **Context Engineering** | Sending the full 200-page PDF — avoids blown context windows and noisy, expensive prompts |
+| **Harness Engineering** | Single API failures crashing the app — retries, logging, and module isolation make it resilient |
+| **Loop Engineering** | Returning a vague first-attempt answer — iterative widening of context fills in missing detail |
 
 ---
 
